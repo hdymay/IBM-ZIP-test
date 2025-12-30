@@ -1,0 +1,14 @@
+# HTTP 클라이언트
+requests>=2.31.0
+
+# 환경 변수 관리
+python-dotenv>=1.0.0
+
+# 암호화
+cryptography>=41.0.0
+
+# 테스트 프레임워크
+pytest>=7.4.0
+
+# Property-based 테스트
+hypothesis>=6.92.0
