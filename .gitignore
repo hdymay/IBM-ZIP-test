@@ -1,8 +1,12 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# C extensions
 *.so
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -100,6 +104,9 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
+!.env.*.example
 .venv
 env/
 venv/
@@ -131,26 +138,27 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# PyCharm
-.idea/
-
-# VS Code
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Project specific
 output/
-config/
 *.zip
-test_*.py
-debug_*.py
-
-# Sensitive files
-.env
 config/.key
-config/settings.json
+.benchmarks/
 
-# Temporary files
-*.tmp
-*.temp
-.DS_Store
-Thumbs.db
+# Airflow
+logs/
+plugins/
+airflow.db
+airflow.cfg
+webserver_config.py
+standalone_admin_password.txt
