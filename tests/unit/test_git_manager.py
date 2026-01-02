@@ -19,80 +19,92 @@ class TestGitManager(unittest.TestCase):
     
     def setUp(self):
         """테스트 설정"""
-        self.git_manager = GitManager()
+        # GitPython Repo를 mock
+        with patch('src.core.git_manager.Repo'):
+            self.git_manager = GitManager()
     
-    @patch('subprocess.run')
-    def test_check_status_with_changes(self, mock_run):
+    @patch('src.core.git_manager.Repo')
+    def test_check_status_with_changes(self, mock_repo_class):
         """변경사항이 있을 때 상태 확인 테스트"""
         # Mock 설정
-        mock_run.return_value = Mock(
-            returncode=0,
-            stdout=" M file1.py\n?? file2.py\n",
-            stderr=""
-        )
+        mock_repo = MagicMock()
+        mock_repo_class.return_value = mock_repo
+        
+        # 변경된 파일 mock
+        mock_diff_item = MagicMock()
+        mock_diff_item.a_path = "file1.py"
+        mock_repo.index.diff.return_value = [mock_diff_item]
+        mock_repo.untracked_files = ["file2.py"]
+        
+        git_manager = GitManager()
         
         # 실행
-        result = self.git_manager.check_status()
+        result = git_manager.check_status()
         
         # 검증
         self.assertTrue(result.success)
         self.assertEqual(result.message, "변경된 파일이 있습니다")
         self.assertIn("file1.py", result.output)
-        mock_run.assert_called_once()
+        self.assertIn("file2.py", result.output)
     
-    @patch('subprocess.run')
-    def test_check_status_no_changes(self, mock_run):
+    @patch('src.core.git_manager.Repo')
+    def test_check_status_no_changes(self, mock_repo_class):
         """변경사항이 없을 때 상태 확인 테스트"""
         # Mock 설정
-        mock_run.return_value = Mock(
-            returncode=0,
-            stdout="",
-            stderr=""
-        )
+        mock_repo = MagicMock()
+        mock_repo_class.return_value = mock_repo
+        
+        # 변경사항 없음
+        mock_repo.index.diff.return_value = []
+        mock_repo.untracked_files = []
+        
+        git_manager = GitManager()
         
         # 실행
-        result = self.git_manager.check_status()
+        result = git_manager.check_status()
         
         # 검증
         self.assertTrue(result.success)
         self.assertEqual(result.message, "변경된 파일이 없습니다")
         self.assertEqual(result.output, "")
     
-    @patch('subprocess.run')
-    def test_add_all_success(self, mock_run):
+    @patch('src.core.git_manager.Repo')
+    def test_add_all_success(self, mock_repo_class):
         """파일 스테이징 성공 테스트"""
         # Mock 설정
-        mock_run.return_value = Mock(
-            returncode=0,
-            stdout="",
-            stderr=""
-        )
+        mock_repo = MagicMock()
+        mock_repo_class.return_value = mock_repo
+        
+        git_manager = GitManager()
         
         # 실행
-        result = self.git_manager.add_all()
+        result = git_manager.add_all()
         
         # 검증
         self.assertTrue(result.success)
         self.assertEqual(result.message, "모든 파일이 스테이징되었습니다")
-        mock_run.assert_called_once()
+        mock_repo.git.add.assert_called_once_with('.')
     
-    @patch('subprocess.run')
-    def test_commit_success(self, mock_run):
+    @patch('src.core.git_manager.Repo')
+    def test_commit_success(self, mock_repo_class):
         """커밋 성공 테스트"""
         # Mock 설정
-        mock_run.return_value = Mock(
-            returncode=0,
-            stdout="[main abc1234] Test commit\n 1 file changed, 1 insertion(+)\n",
-            stderr=""
-        )
+        mock_repo = MagicMock()
+        mock_repo_class.return_value = mock_repo
+        
+        mock_commit = MagicMock()
+        mock_commit.hexsha = "abc1234567890"
+        mock_repo.index.commit.return_value = mock_commit
+        
+        git_manager = GitManager()
         
         # 실행
-        result = self.git_manager.commit("Test commit")
+        result = git_manager.commit("Test commit")
         
         # 검증
         self.assertTrue(result.success)
         self.assertIn("Test commit", result.message)
-        mock_run.assert_called_once()
+        mock_repo.index.commit.assert_called_once_with("Test commit")
     
     def test_commit_empty_message(self):
         """빈 커밋 메시지 테스트"""
@@ -103,88 +115,115 @@ class TestGitManager(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(result.message, "커밋 메시지가 필요합니다")
     
-    @patch('subprocess.run')
-    def test_commit_nothing_to_commit(self, mock_run):
+    @patch('src.core.git_manager.Repo')
+    def test_commit_nothing_to_commit(self, mock_repo_class):
         """커밋할 내용이 없을 때 테스트"""
         # Mock 설정
-        mock_run.return_value = Mock(
-            returncode=1,
-            stdout="nothing to commit, working tree clean\n",
-            stderr=""
-        )
+        mock_repo = MagicMock()
+        mock_repo_class.return_value = mock_repo
+        
+        from git import GitCommandError
+        mock_repo.index.commit.side_effect = GitCommandError("commit", "nothing to commit")
+        
+        git_manager = GitManager()
         
         # 실행
-        result = self.git_manager.commit("Test commit")
+        result = git_manager.commit("Test commit")
         
         # 검증
         self.assertTrue(result.success)
         self.assertEqual(result.message, "커밋할 변경사항이 없습니다")
     
-    @patch('subprocess.run')
-    def test_pull_success(self, mock_run):
+    @patch('src.core.git_manager.Repo')
+    def test_pull_success(self, mock_repo_class):
         """Pull 성공 테스트"""
         # Mock 설정
-        mock_run.return_value = Mock(
-            returncode=0,
-            stdout="Updating abc1234..def5678\nFast-forward\n file.py | 2 +-\n",
-            stderr=""
-        )
+        mock_repo = MagicMock()
+        mock_repo_class.return_value = mock_repo
+        
+        mock_remote = MagicMock()
+        mock_repo.remote.return_value = mock_remote
+        
+        mock_pull_info = MagicMock()
+        # HEAD_UPTODATE가 아닌 경우를 시뮬레이션
+        # flags & HEAD_UPTODATE가 False가 되도록 설정
+        mock_pull_info.flags = 4  # 임의의 다른 플래그
+        mock_pull_info.HEAD_UPTODATE = 128  # 일반적인 HEAD_UPTODATE 값
+        mock_remote.pull.return_value = [mock_pull_info]
+        
+        git_manager = GitManager()
         
         # 실행
-        result = self.git_manager.pull()
+        result = git_manager.pull()
         
         # 검증
         self.assertTrue(result.success)
         self.assertIn("변경사항을 가져왔습니다", result.message)
-        mock_run.assert_called_once()
+        mock_remote.pull.assert_called_once_with("main")
     
-    @patch('subprocess.run')
-    def test_pull_already_up_to_date(self, mock_run):
+    @patch('src.core.git_manager.Repo')
+    def test_pull_already_up_to_date(self, mock_repo_class):
         """이미 최신 상태일 때 Pull 테스트"""
         # Mock 설정
-        mock_run.return_value = Mock(
-            returncode=0,
-            stdout="Already up to date.\n",
-            stderr=""
-        )
+        mock_repo = MagicMock()
+        mock_repo_class.return_value = mock_repo
+        
+        mock_remote = MagicMock()
+        mock_repo.remote.return_value = mock_remote
+        
+        mock_pull_info = MagicMock()
+        mock_pull_info.flags = mock_pull_info.HEAD_UPTODATE
+        mock_remote.pull.return_value = [mock_pull_info]
+        
+        git_manager = GitManager()
         
         # 실행
-        result = self.git_manager.pull()
+        result = git_manager.pull()
         
         # 검증
         self.assertTrue(result.success)
         self.assertEqual(result.message, "이미 최신 상태입니다")
     
-    @patch('subprocess.run')
-    def test_push_success(self, mock_run):
+    @patch('src.core.git_manager.Repo')
+    def test_push_success(self, mock_repo_class):
         """Push 성공 테스트"""
         # Mock 설정
-        mock_run.return_value = Mock(
-            returncode=0,
-            stdout="To https://github.com/user/repo.git\n   abc1234..def5678  main -> main\n",
-            stderr=""
-        )
+        mock_repo = MagicMock()
+        mock_repo_class.return_value = mock_repo
+        
+        mock_remote = MagicMock()
+        mock_repo.remote.return_value = mock_remote
+        
+        mock_push_info = MagicMock()
+        mock_remote.push.return_value = [mock_push_info]
+        
+        git_manager = GitManager()
         
         # 실행
-        result = self.git_manager.push()
+        result = git_manager.push()
         
         # 검증
         self.assertTrue(result.success)
         self.assertIn("푸시 완료", result.message)
-        mock_run.assert_called_once()
+        mock_remote.push.assert_called_once_with("main")
     
-    @patch('subprocess.run')
-    def test_push_failure(self, mock_run):
+    @patch('src.core.git_manager.Repo')
+    def test_push_failure(self, mock_repo_class):
         """Push 실패 테스트"""
         # Mock 설정
-        mock_run.return_value = Mock(
-            returncode=1,
-            stdout="",
-            stderr="error: failed to push some refs\n"
-        )
+        mock_repo = MagicMock()
+        mock_repo_class.return_value = mock_repo
+        
+        mock_remote = MagicMock()
+        mock_repo.remote.return_value = mock_remote
+        
+        from git import GitCommandError
+        mock_remote.push.side_effect = GitCommandError("push", "error: failed to push some refs")
+        
+        git_manager = GitManager()
         
         # 실행
-        result = self.git_manager.push()
+        result = git_manager.push()
         
         # 검증
         self.assertFalse(result.success)
@@ -235,19 +274,24 @@ class TestGitManager(unittest.TestCase):
         self.assertIn("변경사항이 없어", result.message)
         mock_status.assert_called_once()
     
-    @patch('subprocess.run')
-    def test_command_timeout(self, mock_run):
-        """명령어 타임아웃 테스트"""
+    @patch('src.core.git_manager.Repo')
+    def test_command_timeout(self, mock_repo_class):
+        """명령어 타임아웃 테스트 (GitPython은 타임아웃 처리가 다름)"""
         # Mock 설정
-        import subprocess
-        mock_run.side_effect = subprocess.TimeoutExpired("git", 30)
+        mock_repo = MagicMock()
+        mock_repo_class.return_value = mock_repo
+        
+        # GitPython에서는 일반 Exception으로 처리
+        mock_repo.index.diff.side_effect = Exception("Operation timed out")
+        
+        git_manager = GitManager()
         
         # 실행
-        result = self.git_manager.check_status()
+        result = git_manager.check_status()
         
         # 검증
         self.assertFalse(result.success)
-        self.assertIn("시간 초과", result.error)
+        self.assertIn("Operation timed out", result.error)
 
 
 if __name__ == '__main__':
