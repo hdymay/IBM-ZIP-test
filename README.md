@@ -445,6 +445,210 @@ if os.path.exists("/tmp/pipeline"):
 - 모듈 import 테스트
 - 상세한 에러 메시지 제공
 
+## Airflow 통합
+
+### Airflow 파이프라인
+
+C to Java 프로젝트는 Apache Airflow를 통해 자동화된 파이프라인을 실행할 수 있습니다.
+
+#### 빠른 시작
+
+```bash
+# Airflow 실행 (Docker Compose)
+docker-compose -f docker-compose.airflow.yml up -d
+
+# Airflow UI 접속
+http://localhost:8080
+# 로그인: airflow / airflow
+```
+
+#### 사용 가능한 DAG
+
+1. **c_to_java_pipeline.py** - 기본 파이프라인
+2. **c_to_java_taskflow.py** - TaskFlow API 버전
+3. **c_to_java_samples_pipeline.py** - 샘플 실행 파이프라인
+4. **watsonx_notebook_job_pipeline.py** - watsonx Job 연동
+
+#### 상세 가이드
+
+- **AIRFLOW_QUICKSTART.md** - Airflow 빠른 시작
+- **AIRFLOW_CUSTOM_PIPELINE_GUIDE.md** - 커스텀 파이프라인 작성
+- **AIRFLOW_RESULT_GUIDE.md** - 결과 확인 방법
+- **WATSONX_NOTEBOOK_JOB_GUIDE.md** - watsonx Job 연동
+
+### 폐쇄망 환경 설치
+
+인터넷 연결이 없는 폐쇄망 환경에서 Airflow를 설치하는 방법입니다.
+
+#### 옵션 A: 회사 Airflow 서버에 추가 패키지만 설치 (권장)
+
+회사에 이미 Airflow가 설치되어 있는 경우, C to Java 프로젝트에 필요한 패키지만 추가합니다.
+
+```powershell
+# Windows
+.\collect_c_to_java_packages.ps1
+
+# Linux/Mac
+chmod +x collect_c_to_java_packages.sh
+./collect_c_to_java_packages.sh
+```
+
+수집되는 패키지:
+- **requests** (watsonx.ai, GitHub API)
+- **python-dotenv** (환경 변수 관리)
+
+**총 크기**: 약 5MB
+
+**장점**:
+- 용량 절약 (355MB → 5MB)
+- 빠른 전송
+- 명확한 목적
+
+#### 옵션 B: Airflow 전체 설치 (새 서버)
+
+Airflow가 설치되지 않은 새 서버에 전체 설치가 필요한 경우:
+
+```powershell
+# Windows
+.\collect_airflow_wheels.ps1
+
+# Linux/Mac
+chmod +x collect_airflow_wheels.sh
+./collect_airflow_wheels.sh
+```
+
+수집되는 패키지:
+- Airflow 3.1.0 + 모든 의존성 (약 200MB)
+- PostgreSQL 드라이버
+- Celery, Redis, Flower
+- **requests** (watsonx.ai, GitHub API)
+- **python-dotenv** (환경 변수 관리)
+
+**총 크기**: 약 355MB (Docker 이미지 제외)
+
+#### 2단계: USB로 전송
+
+```bash
+# 패키지 압축
+tar -czf airflow_3.1.0_wheels.tar.gz airflow_3.1.0_wheels/
+
+# USB로 폐쇄망 환경에 전송
+```
+
+#### 3단계: 폐쇄망 환경에서 설치
+
+```bash
+# 압축 해제
+tar -xzf airflow_3.1.0_wheels.tar.gz
+
+# 가상환경 생성
+python -m venv .venv
+source .venv/bin/activate
+
+# 로컬 패키지에서 설치
+pip install \
+    --no-index \
+    --find-links=airflow_3.1.0_wheels \
+    apache-airflow==3.1.0 \
+    requests \
+    python-dotenv
+
+# Airflow 초기화
+export AIRFLOW_HOME=~/airflow
+airflow db migrate
+airflow users create \
+    --username admin \
+    --firstname Admin \
+    --lastname User \
+    --role Admin \
+    --email admin@company.com \
+    --password admin123
+```
+
+#### 폐쇄망 환경 가이드
+
+- **AIRFLOW_OFFLINE_INSTALLATION_GUIDE.md** - 상세 설치 가이드
+- **AIRFLOW_CLOSED_NETWORK_GUIDE.md** - 폐쇄망 환경 구축 가이드
+- **AIRFLOW_PACKAGE_SUMMARY.md** - 패키지 요약 및 체크리스트
+- **AIRFLOW_DEPENDENCIES_USAGE.md** - 의존성 패키지 사용처 가이드 ⭐
+
+#### 폐쇄망 환경 특화 요구사항
+
+1. **Git CLI 필수**
+   - Git push/pull 자동화에 사용
+   - Windows: Git-2.43.0-64-bit.exe
+   - Linux: git-2.43.0.rpm 또는 .deb
+
+2. **내부 Git 서버**
+   - GitHub Enterprise Server
+   - GitLab Self-hosted
+   - Bitbucket Server
+
+3. **내부 watsonx.ai 인스턴스**
+   - IBM Cloud Pak for Data
+   - 또는 프록시 서버 설정
+
+4. **환경 변수 설정**
+   ```bash
+   # 내부 서버 URL로 변경
+   GITHUB_REPO_URL=https://internal-git.company.com/org/repo.git
+   WATSONX_ENDPOINT=https://internal-watsonx.company.com
+   ```
+
+## Git 자동화
+
+프로젝트는 Git push/pull 자동화 기능을 제공합니다.
+
+### 사용 방법
+
+```python
+from src.core.git_manager import GitManager
+
+# Git 관리자 초기화
+git_manager = GitManager(repo_path=".")
+
+# 자동 커밋 및 푸시
+result = git_manager.auto_commit_and_push(
+    commit_message="Update pipeline results",
+    remote="origin",
+    branch="main"
+)
+
+if result.success:
+    print(f"✓ {result.message}")
+else:
+    print(f"✗ {result.error}")
+```
+
+### 테스트
+
+```bash
+# Git 자동화 테스트
+python test_git_automation.py
+```
+
+### Airflow DAG에서 사용
+
+```python
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from src.core.git_manager import GitManager
+
+def git_push_task():
+    git_manager = GitManager()
+    result = git_manager.auto_commit_and_push(
+        commit_message="Airflow pipeline execution results"
+    )
+    if not result.success:
+        raise Exception(f"Git push failed: {result.error}")
+
+with DAG('git_automation_dag', ...) as dag:
+    push_task = PythonOperator(
+        task_id='git_push',
+        python_callable=git_push_task
+    )
+```
+
 ## 문의
 
 문제가 발생하거나 질문이 있으시면 이슈를 등록해주세요.

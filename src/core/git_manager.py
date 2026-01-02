@@ -2,12 +2,21 @@
 Git 저장소 관리 모듈
 
 자동으로 Git push/pull을 수행하는 기능을 제공합니다.
+GitPython 라이브러리를 사용하여 Git 작업을 수행합니다.
 """
 
-import subprocess
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 from dataclasses import dataclass
+
+try:
+    import git
+    from git import Repo, GitCommandError, InvalidGitRepositoryError
+    GITPYTHON_AVAILABLE = True
+except ImportError:
+    GITPYTHON_AVAILABLE = False
+    # Fallback to subprocess
+    import subprocess
 
 
 @dataclass
@@ -22,7 +31,8 @@ class GitResult:
 class GitManager:
     """Git 저장소 자동 관리 클래스
     
-    커밋, 푸시, 풀 등의 Git 작업을 자동화합니다.
+    GitPython을 사용하여 커밋, 푸시, 풀 등의 Git 작업을 자동화합니다.
+    GitPython이 없으면 subprocess로 fallback합니다.
     """
     
     def __init__(self, repo_path: str = "."):
@@ -31,9 +41,18 @@ class GitManager:
             repo_path: Git 저장소 경로 (기본값: 현재 디렉토리)
         """
         self.repo_path = Path(repo_path).resolve()
+        self.use_gitpython = GITPYTHON_AVAILABLE
         
-    def _run_command(self, command: list) -> Tuple[bool, str, str]:
-        """Git 명령어 실행
+        if self.use_gitpython:
+            try:
+                self.repo = Repo(self.repo_path)
+            except InvalidGitRepositoryError:
+                raise ValueError(f"유효한 Git 저장소가 아닙니다: {self.repo_path}")
+            except Exception as e:
+                raise ValueError(f"Git 저장소 초기화 실패: {e}")
+        
+    def _run_command_subprocess(self, command: list) -> tuple[bool, str, str]:
+        """Subprocess를 사용한 Git 명령어 실행 (Fallback)
         
         Args:
             command: 실행할 명령어 리스트
@@ -61,27 +80,54 @@ class GitManager:
         Returns:
             GitResult: 상태 확인 결과
         """
-        success, output, error = self._run_command(["git", "status", "--porcelain"])
-        
-        if not success:
-            return GitResult(
-                success=False,
-                message="Git 상태 확인 실패",
-                error=error
-            )
-        
-        if output.strip():
-            return GitResult(
-                success=True,
-                message="변경된 파일이 있습니다",
-                output=output
-            )
+        if self.use_gitpython:
+            try:
+                # GitPython 사용
+                changed_files = [item.a_path for item in self.repo.index.diff(None)]
+                untracked_files = self.repo.untracked_files
+                
+                if changed_files or untracked_files:
+                    output = "\n".join(changed_files + untracked_files)
+                    return GitResult(
+                        success=True,
+                        message="변경된 파일이 있습니다",
+                        output=output
+                    )
+                else:
+                    return GitResult(
+                        success=True,
+                        message="변경된 파일이 없습니다",
+                        output=""
+                    )
+            except Exception as e:
+                return GitResult(
+                    success=False,
+                    message="Git 상태 확인 실패",
+                    error=str(e)
+                )
         else:
-            return GitResult(
-                success=True,
-                message="변경된 파일이 없습니다",
-                output=""
-            )
+            # Subprocess fallback
+            success, output, error = self._run_command_subprocess(["git", "status", "--porcelain"])
+            
+            if not success:
+                return GitResult(
+                    success=False,
+                    message="Git 상태 확인 실패",
+                    error=error
+                )
+            
+            if output.strip():
+                return GitResult(
+                    success=True,
+                    message="변경된 파일이 있습니다",
+                    output=output
+                )
+            else:
+                return GitResult(
+                    success=True,
+                    message="변경된 파일이 없습니다",
+                    output=""
+                )
     
     def add_all(self) -> GitResult:
         """모든 변경사항을 스테이징
@@ -89,20 +135,37 @@ class GitManager:
         Returns:
             GitResult: 스테이징 결과
         """
-        success, output, error = self._run_command(["git", "add", "."])
-        
-        if success:
-            return GitResult(
-                success=True,
-                message="모든 파일이 스테이징되었습니다",
-                output=output
-            )
+        if self.use_gitpython:
+            try:
+                # GitPython 사용
+                self.repo.git.add('.')
+                return GitResult(
+                    success=True,
+                    message="모든 파일이 스테이징되었습니다",
+                    output=""
+                )
+            except GitCommandError as e:
+                return GitResult(
+                    success=False,
+                    message="파일 스테이징 실패",
+                    error=str(e)
+                )
         else:
-            return GitResult(
-                success=False,
-                message="파일 스테이징 실패",
-                error=error
-            )
+            # Subprocess fallback
+            success, output, error = self._run_command_subprocess(["git", "add", "."])
+            
+            if success:
+                return GitResult(
+                    success=True,
+                    message="모든 파일이 스테이징되었습니다",
+                    output=output
+                )
+            else:
+                return GitResult(
+                    success=False,
+                    message="파일 스테이징 실패",
+                    error=error
+                )
     
     def commit(self, message: str) -> GitResult:
         """변경사항 커밋
@@ -120,26 +183,50 @@ class GitManager:
                 error="Empty commit message"
             )
         
-        success, output, error = self._run_command(["git", "commit", "-m", message])
-        
-        if success:
-            return GitResult(
-                success=True,
-                message=f"커밋 완료: {message}",
-                output=output
-            )
-        elif "nothing to commit" in output or "nothing to commit" in error:
-            return GitResult(
-                success=True,
-                message="커밋할 변경사항이 없습니다",
-                output=output
-            )
+        if self.use_gitpython:
+            try:
+                # GitPython 사용
+                commit = self.repo.index.commit(message)
+                return GitResult(
+                    success=True,
+                    message=f"커밋 완료: {message}",
+                    output=f"Commit: {commit.hexsha[:7]}"
+                )
+            except GitCommandError as e:
+                error_msg = str(e)
+                if "nothing to commit" in error_msg:
+                    return GitResult(
+                        success=True,
+                        message="커밋할 변경사항이 없습니다",
+                        output=""
+                    )
+                return GitResult(
+                    success=False,
+                    message="커밋 실패",
+                    error=error_msg
+                )
         else:
-            return GitResult(
-                success=False,
-                message="커밋 실패",
-                error=error
-            )
+            # Subprocess fallback
+            success, output, error = self._run_command_subprocess(["git", "commit", "-m", message])
+            
+            if success:
+                return GitResult(
+                    success=True,
+                    message=f"커밋 완료: {message}",
+                    output=output
+                )
+            elif "nothing to commit" in output or "nothing to commit" in error:
+                return GitResult(
+                    success=True,
+                    message="커밋할 변경사항이 없습니다",
+                    output=output
+                )
+            else:
+                return GitResult(
+                    success=False,
+                    message="커밋 실패",
+                    error=error
+                )
     
     def pull(self, remote: str = "origin", branch: str = "main") -> GitResult:
         """원격 저장소에서 변경사항 가져오기
@@ -151,27 +238,53 @@ class GitManager:
         Returns:
             GitResult: Pull 결과
         """
-        success, output, error = self._run_command(["git", "pull", remote, branch])
-        
-        if success:
-            if "Already up to date" in output:
+        if self.use_gitpython:
+            try:
+                # GitPython 사용
+                origin = self.repo.remote(name=remote)
+                pull_info = origin.pull(branch)
+                
+                if pull_info and pull_info[0].flags & pull_info[0].HEAD_UPTODATE:
+                    return GitResult(
+                        success=True,
+                        message="이미 최신 상태입니다",
+                        output=""
+                    )
+                else:
+                    return GitResult(
+                        success=True,
+                        message=f"{remote}/{branch}에서 변경사항을 가져왔습니다",
+                        output=str(pull_info)
+                    )
+            except GitCommandError as e:
                 return GitResult(
-                    success=True,
-                    message="이미 최신 상태입니다",
-                    output=output
-                )
-            else:
-                return GitResult(
-                    success=True,
-                    message=f"{remote}/{branch}에서 변경사항을 가져왔습니다",
-                    output=output
+                    success=False,
+                    message="Pull 실패",
+                    error=str(e)
                 )
         else:
-            return GitResult(
-                success=False,
-                message="Pull 실패",
-                error=error
-            )
+            # Subprocess fallback
+            success, output, error = self._run_command_subprocess(["git", "pull", remote, branch])
+            
+            if success:
+                if "Already up to date" in output:
+                    return GitResult(
+                        success=True,
+                        message="이미 최신 상태입니다",
+                        output=output
+                    )
+                else:
+                    return GitResult(
+                        success=True,
+                        message=f"{remote}/{branch}에서 변경사항을 가져왔습니다",
+                        output=output
+                    )
+            else:
+                return GitResult(
+                    success=False,
+                    message="Pull 실패",
+                    error=error
+                )
     
     def push(self, remote: str = "origin", branch: str = "main") -> GitResult:
         """원격 저장소로 변경사항 푸시
@@ -183,20 +296,39 @@ class GitManager:
         Returns:
             GitResult: Push 결과
         """
-        success, output, error = self._run_command(["git", "push", remote, branch])
-        
-        if success:
-            return GitResult(
-                success=True,
-                message=f"{remote}/{branch}로 푸시 완료",
-                output=output
-            )
+        if self.use_gitpython:
+            try:
+                # GitPython 사용
+                origin = self.repo.remote(name=remote)
+                push_info = origin.push(branch)
+                
+                return GitResult(
+                    success=True,
+                    message=f"{remote}/{branch}로 푸시 완료",
+                    output=str(push_info)
+                )
+            except GitCommandError as e:
+                return GitResult(
+                    success=False,
+                    message="Push 실패",
+                    error=str(e)
+                )
         else:
-            return GitResult(
-                success=False,
-                message="Push 실패",
-                error=error
-            )
+            # Subprocess fallback
+            success, output, error = self._run_command_subprocess(["git", "push", remote, branch])
+            
+            if success:
+                return GitResult(
+                    success=True,
+                    message=f"{remote}/{branch}로 푸시 완료",
+                    output=output
+                )
+            else:
+                return GitResult(
+                    success=False,
+                    message="Push 실패",
+                    error=error
+                )
     
     def auto_commit_and_push(
         self,
